@@ -1,0 +1,270 @@
+package cn.fastdfs.client;
+
+
+import com.alibaba.fastjson.JSONObject;
+import org.csource.fastdfs.*;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.stereotype.Component;
+import sun.net.www.protocol.http.HttpURLConnection;
+
+import java.io.*;
+import java.net.URL;
+import java.net.URLDecoder;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import static java.util.regex.Pattern.compile;
+
+
+@Component
+public class FastDFSUtils {
+
+    private static StorageClient1 storageClient=null;
+    @Autowired
+    private  StringRedisTemplate stringRedisTemplate;
+    // 初始化FastDFS Client，静态代码块，只加载一次
+    static {
+        try {
+            //ClientGlobal.init(CONFIG_FILENAME);
+            //clientGloble读配置文件
+            ClassPathResource resource = new ClassPathResource("client.conf");
+            ClientGlobal.init(resource.getClassLoader().getResource("client.conf").getPath());
+            TrackerClient trackerClient = new TrackerClient(ClientGlobal.g_tracker_group);
+            TrackerServer trackerServer = trackerClient.getConnection();
+            if (trackerServer == null) {
+                throw new IllegalStateException("getConnection return null");
+            }
+
+            StorageServer storageServer = trackerClient.getStoreStorage(trackerServer);
+            if (storageServer == null) {
+                throw new IllegalStateException("getStoreStorage return null");
+            }
+
+            storageClient = new StorageClient1(trackerServer,storageServer);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    //上传文件
+    public  String uploadFileByStream(String checkUploadUrl, String uploadUrl, RandomAccessFile fileInputStream, String fileName,long form ,long to) throws IOException {
+        HttpURLConnection httpURLConnection = null;
+        byte[] data = new byte[1024];
+
+        int len = 0;
+        try {
+            //查询数据已上传多少
+            String content = requestGetContenByUrl(checkUploadUrl);
+            System.out.println(content);
+            JSONObject object = JSONObject.parseObject(content);
+            System.out.println(object);
+
+            //long form =0;
+
+            JSONObject dataObject = object.getJSONObject("data");
+            System.out.println("dataObject:"+dataObject);
+            if (object.getIntValue("code") == 0){
+
+
+                if (dataObject == null) {
+                    System.out.println("未上传过！");
+                } else {
+
+                    Long currentSize = dataObject.getLong("currentSize");
+                    System.out.println("已上传大小：" + currentSize);
+                    form = currentSize;
+                }
+            }else {
+                System.out.println(object.get("msg"));
+            }
+
+            URL url = new URL(uploadUrl);
+            System.out.println(url);
+
+            if (url != null) {
+                httpURLConnection = (HttpURLConnection) url.openConnection();
+                httpURLConnection.setRequestMethod("POST");
+                httpURLConnection.setDoInput(true);
+                httpURLConnection.setDoOutput(true);
+                httpURLConnection.addRequestProperty("fileName", fileName);
+                httpURLConnection.addRequestProperty("Charset", "UTF-8");
+                httpURLConnection.setRequestProperty("Connection", "close");//Keep-Alive
+                httpURLConnection.setUseCaches(false);
+                httpURLConnection.setConnectTimeout(20000);
+
+                //获取资源的总长度
+                long total = fileInputStream.length();
+                System.out.println(total);
+                //long to = total-1;
+                System.out.println(to);
+
+                fileInputStream.seek(form);
+                //设置断点续传开始的位置
+                httpURLConnection.setRequestProperty("Content-Range",  form + "-" + to + "/" + total);
+
+                //获取输出流
+                DataOutputStream outputStream = new DataOutputStream(httpURLConnection.getOutputStream());
+                while (-1 != (len = fileInputStream.read(data))){
+                    outputStream.write(data, 0, len);
+                }
+                fileInputStream.close();
+                int size = outputStream.size();
+                System.out.println(size);
+                outputStream.flush();
+                outputStream.close();
+
+            }
+        }  catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        InputStream inputStream = httpURLConnection.getInputStream();
+        BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, "UTF-8"));
+        StringBuilder sb = new StringBuilder();
+        String line;
+        while ((line = reader.readLine()) != null) {
+            sb.append(line + "\n");
+        }
+        inputStream.close();
+        String result = sb.toString();
+
+        return result;
+    }
+
+
+
+
+    public  void downLoadFile(String downloadUrl, long form, long to, String dirPath){
+
+
+        InputStream inputStream = null;
+        HttpURLConnection httpURLConnection = null;
+        RandomAccessFile file = null;
+        byte[] data = new byte[1024];
+        int len = 0;
+        try {
+            URL url = new URL(downloadUrl);
+            if (null != url){
+                httpURLConnection = (HttpURLConnection) url.openConnection();
+
+                // 生成下载路径
+                //String fileDownloadPath = savePath + File.separator + fileName;
+                // 设置连接网络的超时时间
+                httpURLConnection.setConnectTimeout(5000);
+                // 设置本次Http请求使用的方法
+                httpURLConnection.setRequestMethod("GET");
+                //获取文件路径url
+                String filePathUrl = httpURLConnection.getURL().getFile();
+                //获取文件Id
+                String filePathUrlId = URLDecoder.decode(filePathUrl.substring(filePathUrl.indexOf("filename=")+16),"UTF-8");
+                System.out.println(filePathUrlId);
+//                httpURLConnection.connect();
+                //在缓存中根据文件id获取本地路径
+              // String fileUrlPath = RedisUtil.getString(filePathUrlId);
+               /* String fileUrlPath = stringRedisTemplate.opsForValue().get(filePathUrlId);
+                if (!"".equals(fileUrlPath) && fileUrlPath != null){
+                   File fileUrl = new File(fileUrlPath);
+                  form = file.length();
+                   to = 0;
+                }
+               System.out.println(fileUrlPath);
+*/
+
+                //设置断点续传开始的位置
+                if(to != 0){
+                    httpURLConnection.setRequestProperty("Range","bytes=" + form + "-" + to);
+                }else {
+                    httpURLConnection.setRequestProperty("Range","bytes=" + form + "-");
+
+                }
+
+                System.out.println("m_tag"+"--"+"code:" +httpURLConnection.getResponseCode());
+
+
+                // 通过头文件信息获取下载文件的文件名
+                String fileName = httpURLConnection.getHeaderField("Content-Disposition");
+                fileName = new String(fileName.getBytes("ISO-8859-1"), "UTF-8");
+                fileName = URLDecoder.decode(fileName.substring(fileName.indexOf("filename=")+9),"UTF-8");
+                System.out.println(fileName);
+                //文件下载的路径  D:\setup\不怕中文文件名称乱码啦.zip
+                String filePath = dirPath.concat("\\").concat(fileName);
+                System.out.println(filePath);
+
+
+                if (206 == httpURLConnection.getResponseCode()){
+                    // 从服务器获得一个输入流
+                    inputStream = httpURLConnection.getInputStream();
+                    file = new RandomAccessFile(filePath,"rw");
+                    file.seek(form);
+                    while (-1 != (len = inputStream.read(data))){
+                        file.write(data, 0, len);
+                    }
+                }
+
+                //将文件id作为key，文件所在的本地路径作为值放入缓存,
+              //  RedisUtil.setString(filePathUrlId,filePath);
+//              stringRedisTemplate.opsForValue().set(filePathUrlId,filePath);
+
+                //获取下载文件的大小
+                int contentLength = httpURLConnection.getContentLength();
+                System.out.println(contentLength);
+            }
+        }catch (IOException e){
+            e.printStackTrace();
+        }finally{
+            if (null != inputStream){
+                try{
+                    inputStream.close();
+                }catch (IOException e){
+                    e.printStackTrace();
+                }
+            }
+            if (null != file){
+                try{
+                    file.close();
+                }catch (IOException e){
+                    e.printStackTrace();
+                }
+            }
+        }
+        httpURLConnection.disconnect();
+    }
+
+
+    public String requestGetContenByUrl(String checkuploadUrl) {
+        String result = "";
+        try {
+            URL url = new URL(checkuploadUrl);
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(5 * 1000);
+            if (conn.getResponseCode() == 200) {
+                InputStream is = conn.getInputStream();
+                String charset = "UTF-8";
+                Pattern pattern = compile("charset=\\S*");
+                Matcher matcher = pattern.matcher(conn.getContentType());
+                if (matcher.find()) {
+                    charset = matcher.group().replace("charset=", "");
+                }
+                BufferedReader reader = new BufferedReader(new InputStreamReader(is, charset));
+
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    sb.append(line + "\n");
+                }
+                is.close();
+                result = sb.toString();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return result;
+    }
+
+}
+
+
