@@ -1,0 +1,67 @@
+package cn.fastdfs.client.controller;
+
+import cn.fastdfs.client.FastDFSUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Controller;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.RandomAccessFile;
+
+@RestController
+public class DownController {
+    @Autowired
+    private FastDFSUtils fastDFSUtils;
+    String fileId = "ed9d2ae736934ad1a6ffd4707635c92a";
+    String url = "http://192.168.1.101:1002/file/download/" + fileId;
+    String savePath = "D:\\setup";
+    @RequestMapping("/down")
+    public String down(){
+        fastDFSUtils.downLoadFile(url,0,30555,savePath);
+//        fastDFSUtils.downLoadFile(url,30555,96037,savePath);
+        //fastDFSUtils.downLoadFile(url,96037,0,savePath);
+        return "true";
+    }
+
+
+    @RequestMapping("/upload/1")
+    public String upload(){
+        String filePath = "D:\\setup\\nginx.txt";
+        String checkuploadUrl = "http://192.168.1.101:1002/file/check/4ab2c5d01ab1432ea00ed803edfca793/ed9d2ae736934ad1a6ffd4707635c92a";
+        String uploadUrl = "http://192.168.1.101:1002/file/upload/4ab2c5d01ab1432ea00ed803edfca793/ed9d2ae736934ad1a6ffd4707635c92a";
+        RandomAccessFile fileInputStream = null;
+        try {
+            fileInputStream = new RandomAccessFile(filePath,"rw");
+            Object i = fastDFSUtils.uploadFileByStream(checkuploadUrl, uploadUrl, fileInputStream, "nginx.txt",0,500);
+            System.out.println(i);
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        return "true";
+    }
+
+
+    @RequestMapping("/upload/2")
+    public String upload1(){
+        String filePath = "D:\\setup\\nginx.txt";
+        String checkuploadUrl = "http://192.168.1.101:1002/file/check/4ab2c5d01ab1432ea00ed803edfca793/ed9d2ae736934ad1a6ffd4707635c92a";
+        String uploadUrl = "http://192.168.1.101:1002/file/upload/4ab2c5d01ab1432ea00ed803edfca793/ed9d2ae736934ad1a6ffd4707635c92a";
+        RandomAccessFile fileInputStream = null;
+        try {
+            fileInputStream = new RandomAccessFile(filePath,"rw");
+            Object i = fastDFSUtils.uploadFileByStream(checkuploadUrl, uploadUrl, fileInputStream, "nginx.txt",500,2832);
+            System.out.println(i);
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        return "true";
+    }
+}
